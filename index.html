@@ -107,7 +107,7 @@
   <div class="header-left">
     <h1>⬡ Portfolio Monitor</h1>
     <h2>Crypto Dashboard CHF</h2>
-    <div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:'Space Mono',monospace;">v 11.08.2026 20:25</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px;font-family:'Space Mono',monospace;">v 11.08.2026 20:29</div>
   </div>
   <div class="header-right">
     <div class="total-label">Gesamtwert</div>
@@ -478,27 +478,16 @@ function renderAssets(prices, total) {
 // ── MAIN INIT ─────────────────────────────────────────────────
 (async () => {
   try {
-    // 1. Live prices via Binance (USD) + SNB CHF rate
-    // Binance symbols
-    const symbols = {bitcoin:'BTCUSDT', ethereum:'ETHUSDT', ripple:'XRPUSDT', solana:'SOLUSDT', chainlink:'LINKUSDT'};
-    const binanceUrl = 'https://api.binance.com/api/v3/ticker/price?symbols=[%22BTCUSDT%22,%22ETHUSDT%22,%22XRPUSDT%22,%22SOLUSDT%22,%22LINKUSDT%22,%22USDTCHF%22]';
-    const binRes = await fetch(binanceUrl);
-    const binData = await binRes.json();
+    // 1. Live prices via CryptoCompare (no API key needed, open CORS)
+    const ccUrl = 'https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH,XRP,SOL,LINK&tsyms=CHF';
+    const ccRes = await fetch(ccUrl);
+    const ccData = await ccRes.json();
 
-    // Parse prices
-    const usdPrices = {};
-    let usdchf = 0.887; // fallback
-    binData.forEach(item => {
-      if (item.symbol === 'USDTCHF') usdchf = parseFloat(item.price);
-      Object.entries(symbols).forEach(([id, sym]) => {
-        if (item.symbol === sym) usdPrices[id] = parseFloat(item.price);
-      });
-    });
-
-    // Convert to CHF
+    // Map CryptoCompare symbols to our coin IDs
+    const ccMap = { bitcoin:'BTC', ethereum:'ETH', ripple:'XRP', solana:'SOL', chainlink:'LINK' };
     const prices = {};
-    Object.entries(usdPrices).forEach(([id, usd]) => {
-      prices[id] = { chf: usd * usdchf };
+    Object.entries(ccMap).forEach(([id, sym]) => {
+      if (ccData[sym]?.CHF) prices[id] = { chf: ccData[sym].CHF };
     });
 
     let total = USDT;
@@ -519,24 +508,25 @@ function renderAssets(prices, total) {
 
     renderAssets(prices, total);
 
-    // 2. Historical BTC prices from Binance Klines (monthly)
-    const klineRes = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1M&startTime=1609459200000&limit=60');
-    const klines = await klineRes.json();
+    // 2. Historical BTC prices from CryptoCompare
+    const usdchf = 0.887;
+    const klineRes = await fetch('https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=CHF&limit=1826&aggregate=30');
+    const klineData = await klineRes.json();
+    const klines = klineData.Data?.Data || [];
 
     const labels = [];
     const vals = [];
     const seenYears = new Set();
 
     klines.forEach(k => {
-      const ts = k[0];
-      const btcUsd = parseFloat(k[4]); // close price
-      const btcChf = btcUsd * usdchf;
+      const ts = k.time * 1000;
+      const btcChf = k.close;
+      if (!btcChf || btcChf === 0) return;
       const d = new Date(ts);
       const yr = d.getFullYear();
       const mo = d.getMonth();
 
       if (yr < 2021) return;
-      // Show Jan each year, plus all months from 2025 onwards
       const showYear = mo === 0 && !seenYears.has(yr);
       const showRecent = yr >= 2025;
       if (!showYear && !showRecent) return;
@@ -567,7 +557,7 @@ function renderAssets(prices, total) {
     });
 
     if (vals.length > 0) vals[vals.length-1] = total;
-    document.getElementById('chartSub').textContent = `Historisch (Binance, 2021–heute) + 4 Szenarien gestrichelt`;
+    document.getElementById('chartSub').textContent = `Historisch (2021–heute) + 4 Szenarien gestrichelt`;
     buildChart(labels, vals, total);
 
   } catch(e) {
